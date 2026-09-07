@@ -64,8 +64,19 @@ pub fn toInt(self: Uuid) u128 {
     return std.mem.readInt(u128, &self.bytes, .big);
 }
 
-/// A fresh random id, version 4. Pass `std.crypto.random` for one nobody can
-/// guess, or a seeded `std.Random` when a build has to be reproducible.
+/// A fresh random id, version 4: 122 bits of chance and six of bookkeeping.
+///
+/// The generator is yours to choose. For ids that leave the process, pass one
+/// the operating system seeds, which in Zig 0.16 means going through `Io`:
+///
+/// ```zig
+/// var source: std.Random.IoSource = .{ .io = io };
+/// const id = Uuid.random(source.interface());
+/// ```
+///
+/// A seeded `std.Random.DefaultPrng` is the right choice instead when a build
+/// has to produce the same ids twice - and the wrong one when anybody stands
+/// to gain by guessing the next id.
 pub fn random(rng: std.Random) Uuid {
     var self: Uuid = undefined;
     rng.bytes(&self.bytes);

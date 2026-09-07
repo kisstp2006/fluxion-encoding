@@ -3,7 +3,9 @@
 //! A tour of Fluxion Encoding. Run it with `zig build example`.
 //!
 //! It builds a small binary record by hand, ships it as text, reads it back,
-//! and shows the same bytes three ways along the way.
+//! and shows the same bytes several ways along the way. Then it packs an
+//! entity update down to the precision each field is actually worth, and
+//! unpacks it again.
 
 const std = @import("std");
 const Io = std.Io;
@@ -111,5 +113,132 @@ pub fn main(init: std.process.Init) !void {
     const key = try enc.hex.decodeFixed(4, "de:ad:be:ef", .{ .separators = ":" });
     try out.print("back again:               {any}\n", .{key});
 
+    try sendAPacket(out);
     try out.flush();
+}
+
+// -------------------------------------------------------------------------
+// An entity update, in as few bits as it will go
+// -------------------------------------------------------------------------
+
+/// A namespace of this project's own. Mint one with `Uuid.random` and keep it.
+const asset_namespace = enc.Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
+
+const Entity = struct {
+    id: u32,
+    model: enc.Uuid,
+    position: [3]f32,
+    heading: f32,
+    facing: [3]f32,
+    rotation: [4]f32,
+    health: u8,
+    firing: bool,
+};
+
+// The precision each field is actually worth, decided once and shared by both
+// ends of the wire.
+const position = enc.quantize.Range.init(-500, 500, 16);
+const heading = enc.quantize.angle(12);
+const facing = enc.quantize.normal(10);
+const rotation = enc.quantize.rotation(9);
+
+fn sendAPacket(out: *Io.Writer) !void {
+    const sent: Entity = .{
+        .id = 4211,
+        .model = .fromName(asset_namespace, "models/player.glb"),
+        .position = .{ 12.5, -300.25, 64.0 },
+        .heading = 1.75,
+        .facing = .{ 0, 0, 1 },
+        .rotation = .{ 0, 0.7071, 0, 0.7071 },
+        .health = 87,
+        .firing = true,
+    };
+
+    var buf: [64]u8 = undefined;
+
+    // The header is byte-shaped: an asset id, then a varint entity id that
+    // costs two bytes rather than four.
+    var w = enc.write(&buf, .big);
+    try w.putBytes(&sent.model.bytes);
+    try w.putVarint(u32, sent.id);
+    const header_len = w.written().len;
+
+    // Everything after it is bit-shaped.
+    var bw = enc.writeBits(buf[header_len..]);
+    for (sent.position) |axis| try position.put(&bw, axis);
+    try heading.put(&bw, sent.heading);
+    try facing.put(&bw, sent.facing);
+    try rotation.put(&bw, sent.rotation);
+    try bw.put(u8, sent.health, enc.bits.needed(100));
+    try bw.putBool(sent.firing);
+
+    const packet = buf[0 .. header_len + bw.written().len];
+
+    // What it cost, against the same fields sent at full width.
+    const uncompressed = 16 + 4 + 3 * 4 + 4 + 3 * 4 + 4 * 4 + 1 + 1;
+    try out.print(
+        \\
+        \\--- a packet ---
+        \\header   {d} bytes (16 asset id + {d} varint entity id)
+        \\payload  {d} bits ({d} bytes)
+        \\total    {d} bytes, against {d} sent at full width
+        \\
+    , .{
+        header_len,
+        header_len - 16,
+        bw.bitsWritten(),
+        bw.written().len,
+        packet.len,
+        uncompressed,
+    });
+    try enc.hex.dump(out, packet, .{});
+
+    // And the other end reads it back.
+    var r = enc.read(packet, .big);
+    const model: enc.Uuid = .fromBytes((try r.takeArray(16)).*);
+    const id = try r.takeVarint(u32);
+
+    var br = enc.readBits(r.rest());
+    var got_position: [3]f32 = undefined;
+    for (&got_position) |*axis| axis.* = try position.take(&br);
+    const got_heading = try heading.take(&br);
+    const got_facing = try facing.take(&br);
+    const got_rotation = try rotation.take(&br);
+    const got_health = try br.take(u8, enc.bits.needed(100));
+    const got_firing = try br.takeBool();
+
+    try out.print(
+        \\
+        \\entity {d}, model {f}
+        \\position {d:.3} {d:.3} {d:.3}  (to within {d:.4})
+        \\heading  {d:.4}                  (to within {d:.5})
+        \\facing   {d:.3} {d:.3} {d:.3}
+        \\rotation {d:.3} {d:.3} {d:.3} {d:.3}
+        \\health   {d}, firing {}
+        \\
+    , .{
+        id,
+        model,
+        got_position[0],
+        got_position[1],
+        got_position[2],
+        position.precision(),
+        got_heading,
+        heading.precision(),
+        got_facing[0],
+        got_facing[1],
+        got_facing[2],
+        got_rotation[0],
+        got_rotation[1],
+        got_rotation[2],
+        got_rotation[3],
+        got_health,
+        got_firing,
+    });
+
+    // The id is derived from the path, so it is the same id every run.
+    try out.print(
+        "\nmodels/player.glb -> {f}\n",
+        .{enc.Uuid.fromName(asset_namespace, "models/player.glb")},
+    );
 }

@@ -21,6 +21,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
+const varint = @import("varint.zig");
+
 /// Re-exported so callers need not reach into `std.builtin` for it.
 pub const Endian = std.builtin.Endian;
 
@@ -336,6 +338,14 @@ pub const Reader = struct {
         for (dest) |*slot| slot.* = try self.take(T);
     }
 
+    /// Read a variable-length `T`, where a small number costs one byte. See
+    /// `varint`; byte order does not come into it.
+    pub fn takeVarint(self: *Reader, comptime T: type) varint.ReadError!T {
+        const decoded = try varint.decode(T, self.rest());
+        self.index += decoded.len;
+        return decoded.value;
+    }
+
     /// Read a `T` and require it to equal `wanted`, for a version field or a
     /// magic number. The cursor advances either way.
     pub fn expect(self: *Reader, comptime T: type, wanted: T) ExpectError!void {
@@ -405,6 +415,12 @@ pub const Writer = struct {
         if (self.remaining() < size) return error.NoSpaceLeft;
         write(T, self.bytes[self.index..][0..size], value, order);
         self.index += size;
+    }
+
+    /// Write a variable-length `T`, where a small number costs one byte. See
+    /// `varint`; byte order does not come into it.
+    pub fn putVarint(self: *Writer, comptime T: type, value: T) WriteError!void {
+        self.index += try varint.encode(T, self.bytes[self.index..], value);
     }
 
     /// Write bytes as they are.
@@ -683,6 +699,35 @@ test "Writer padding and slices" {
 
     w.reset();
     try testing.expectEqual(@as(usize, 0), w.written().len);
+}
+
+test "varints sit among the fixed-width fields" {
+    var buf: [16]u8 = undefined;
+    var w: Writer = .init(&buf, .big);
+
+    try w.putBytes("FLUX");
+    try w.putVarint(u32, 300); // two bytes, not four
+    try w.putVarint(i32, -1); // one byte, not four
+    try w.put(u16, 7);
+    try testing.expectEqual(@as(usize, 9), w.written().len);
+
+    var r: Reader = .init(w.written(), .big);
+    try r.expectBytes("FLUX");
+    try testing.expectEqual(@as(u32, 300), try r.takeVarint(u32));
+    try testing.expectEqual(@as(i32, -1), try r.takeVarint(i32));
+    try testing.expectEqual(@as(u16, 7), try r.take(u16));
+    try testing.expect(r.isAtEnd());
+}
+
+test "a varint that runs off the end" {
+    var buf: [1]u8 = undefined;
+    var w: Writer = .init(&buf, .big);
+    try testing.expectError(error.NoSpaceLeft, w.putVarint(u32, 128));
+    try testing.expectEqual(@as(usize, 0), w.index);
+
+    const truncated = [_]u8{0x80};
+    var r: Reader = .init(&truncated, .big);
+    try testing.expectError(error.UnexpectedEnd, r.takeVarint(u32));
 }
 
 test "mixed byte order inside one record" {

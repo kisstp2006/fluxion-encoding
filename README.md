@@ -1,12 +1,17 @@
 # Fluxion Encoding
 
-Bytes to text and back, and the byte order in between. For Zig 0.16.
+Bytes to text and back, and the byte order in between. For Zig 0.16. Seven
+pieces that fit together:
 
 | Module | What it is |
 | --- | --- |
 | `base64` | RFC 4648 in both alphabets, padded or not, wrapped or not. Strict on the way in. |
 | `hex` | Hex in either case, with separators either way, plus a hex dump for looking at binary. |
 | `endian` | Fixed-width values in whichever byte order the format uses: one at a time, through a cursor, or as struct fields. |
+| `varint` | Integers that cost one byte when they are small. Signed ones go through zigzag, so `-1` costs one byte too. |
+| `bits` | Fields that are not a whole number of bytes wide. |
+| `quantize` | Floats, angles, normals and rotations into those fields, each saying what it costs in precision. |
+| `Uuid` | A 128-bit asset id, and the text it is written as. `fromName` turns a path into the same id every build. |
 
 The two codecs share one shape, so swapping between them is a change of name
 and nothing else:
@@ -207,6 +212,147 @@ header.magic.get();     // converted on read, only if the host disagrees
 
 The stored form is a byte array, so the struct has no padding and no alignment
 of its own — `@sizeOf(Header)` is 8, exactly the bytes on the wire.
+
+### varint
+
+Seven bits of payload per byte, with the top bit saying whether another
+follows — the LEB128 that DWARF, WebAssembly and Protocol Buffers use. Most
+numbers in a save file or a packet are small, and this is what small costs:
+
+```zig
+var buf: [10]u8 = undefined;
+try enc.varint.encode(u32, &buf, 300);      // 2 bytes, not 4
+try enc.varint.encode(u32, &buf, 42);       // 1 byte
+try enc.varint.encode(i32, &buf, -1);       // 1 byte, via zigzag
+```
+
+Decoding reports how far it got, so a varint can sit in the middle of a
+record:
+
+```zig
+const count = try enc.varint.decode(u32, wire);
+// count.value == 300, count.len == 2 — the next field starts at wire[2..]
+```
+
+`endian.Reader` and `endian.Writer` have it built in, so a mixed record needs
+only one cursor:
+
+```zig
+try w.putVarint(u32, entity_id);
+const id = try r.takeVarint(u32);
+```
+
+### bits
+
+A jump flag does not need a byte, and health that never passes 100 does not
+need four:
+
+```zig
+var buf: [8]u8 = undefined;
+var w = enc.writeBits(&buf);
+
+try w.putInt(u16, entity_id);                    // 16 bits
+try w.put(u8, health, enc.bits.needed(100));     //  7 bits
+try w.putBool(jumping);                          //  1 bit
+try w.putInt(u2, team);                          //  2 bits
+// 26 bits — four bytes, not six
+```
+
+`enc.readBits` takes them back out in the same order and the same widths. Bits
+go most-significant first, within each byte and across bytes, so a packet laid
+out here matches the way the field diagrams in a protocol document read.
+
+`save`/`restore`, `peek`, `alignToByte` and `putBytes`/`takeBytes` are all
+there, so a bit stream can drop back to whole bytes for a payload and pick up
+again after it.
+
+### quantize
+
+A position is not accurate to 32 bits and a player cannot see the difference.
+Every codec here maps a float onto a small integer and back, and every one
+says what that costs:
+
+```zig
+const position = enc.quantize.Range.init(-500, 500, 16);
+position.precision();          // 0.0076 — worst case, in metres
+
+const heading  = enc.quantize.angle(12);     // radians, wrapped
+const facing   = enc.quantize.normal(10);    // a unit vector, 20 bits
+const rotation = enc.quantize.rotation(9);   // a quaternion, 29 bits
+```
+
+Each has a `put` and a `take` that go straight through a bit stream, so a
+packet is written in the units you think in:
+
+```zig
+try position.put(&w, transform.x);
+try heading.put(&w, transform.yaw);
+try rotation.put(&w, transform.orientation);   // .{ x, y, z, w }
+
+const x = try position.take(&r);
+```
+
+`Range` keeps both ends of its interval exactly representable, so a health bar
+at zero and a throttle at one both survive. `angle` wraps instead of clamping,
+because 2π and 0 are the same heading. `normal` folds the sphere onto an
+octahedron, which spreads its precision evenly instead of bunching it at the
+poles. `rotation` drops the largest of the four components and rebuilds it,
+because a unit quaternion only has three degrees of freedom.
+
+Quantizing is lossy on purpose — never round-trip a value through it and then
+compare for equality.
+
+### Uuid
+
+Sixteen bytes that name a thing and survive it being renamed, moved or edited:
+
+```zig
+const id = try enc.Uuid.parse("f81d4fae-7dec-11d0-a765-00a0c91e6bf6");
+id.toString();       // [36]u8 by value, nothing to free
+```
+
+Parsing is forgiving — dashes anywhere or nowhere, braces, either case —
+and printing always gives the one canonical spelling back.
+
+`fromName` is the one an asset pipeline wants. The same namespace and path
+give the same id every build, on every machine, with nothing written down:
+
+```zig
+// Mint the namespace once with `random`, then keep it as a constant.
+const assets = enc.Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
+const cursor = enc.Uuid.fromName(assets, "textures/ui/cursor.png");
+```
+
+`random` gives a fresh one from any `std.Random`. Either way it is a value:
+copy it, compare it with `eql`, sort it, or use it as an `AutoHashMap` key.
+
+## A packet, in as few bits as it will go
+
+```zig
+const position = enc.quantize.Range.init(-500, 500, 16);
+const heading  = enc.quantize.angle(12);
+const facing   = enc.quantize.normal(10);
+const rotation = enc.quantize.rotation(9);
+
+var buf: [64]u8 = undefined;
+
+// The header is byte-shaped.
+var w = enc.write(&buf, .big);
+try w.putBytes(&model_id.bytes);        // 16 bytes
+try w.putVarint(u32, entity_id);        // 2, not 4
+
+// Everything after it is bit-shaped.
+var bw = enc.writeBits(buf[w.written().len..]);
+for (transform.position) |axis| try position.put(&bw, axis);   // 48 bits
+try heading.put(&bw, transform.yaw);                           // 12
+try facing.put(&bw, transform.look);                           // 20
+try rotation.put(&bw, transform.orientation);                  // 29
+try bw.put(u8, health, enc.bits.needed(100));                  //  7
+try bw.putBool(firing);                                        //  1
+```
+
+Thirty-three bytes, against sixty-six for the same fields at full width. Run
+`zig build example` to watch it go out and come back.
 
 ## Everything together
 

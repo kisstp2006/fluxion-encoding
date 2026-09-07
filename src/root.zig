@@ -2,11 +2,15 @@
 
 //! Fluxion Encoding - bytes to text and back, and the byte order in between.
 //!
-//! Three pieces:
+//! Seven pieces that fit together:
 //!
-//!   `base64`  RFC 4648 in both alphabets, padded or not, wrapped or not
-//!   `hex`     hex in either case, with separators, and a hex dump
-//!   `endian`  fixed-width values in whichever byte order the format uses
+//!   `base64`    RFC 4648 in both alphabets, padded or not, wrapped or not
+//!   `hex`       hex in either case, with separators, and a hex dump
+//!   `endian`    fixed-width values in whichever byte order the format uses
+//!   `varint`    integers that cost one byte when they are small
+//!   `bits`      fields that are not a whole number of bytes wide
+//!   `quantize`  floats, angles, normals and rotations, into those fields
+//!   `Uuid`      a 128-bit asset id, and the text it is written as
 //!
 //! The two codecs share one shape, so swapping between them is a change of
 //! name and nothing else:
@@ -25,6 +29,12 @@ const testing = std.testing;
 pub const base64 = @import("base64.zig");
 pub const hex = @import("hex.zig");
 pub const endian = @import("endian.zig");
+pub const varint = @import("varint.zig");
+pub const bits = @import("bits.zig");
+pub const quantize = @import("quantize.zig");
+
+/// A 128-bit identifier. See `Uuid`.
+pub const Uuid = @import("Uuid.zig");
 
 /// Byte order, re-exported from `std.builtin`. See `endian`.
 pub const Endian = endian.Endian;
@@ -51,11 +61,26 @@ pub fn write(bytes: []u8, order: Endian) Writer {
     return .init(bytes, order);
 }
 
+/// Shorthand for `bits.Reader.init`, for the fields that are narrower than a
+/// byte.
+pub fn readBits(bytes: []const u8) bits.Reader {
+    return .init(bytes);
+}
+
+/// Shorthand for `bits.Writer.init`.
+pub fn writeBits(bytes: []u8) bits.Writer {
+    return .init(bytes);
+}
+
 test {
     // Pull each module in so `zig build test` runs its tests too.
     _ = base64;
     _ = hex;
     _ = endian;
+    _ = varint;
+    _ = bits;
+    _ = quantize;
+    _ = Uuid;
     _ = @import("sink.zig");
 }
 
@@ -97,6 +122,44 @@ test "the pieces compose" {
     );
 }
 
+test "a packet, in as few bits as it will go" {
+    // An asset id names what moved; the rest is quantized down to the
+    // precision anyone can actually tell apart.
+    const assets = Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
+    const model = Uuid.fromName(assets, "models/player.glb");
+
+    const position = quantize.Range.init(-500, 500, 16);
+    const heading = quantize.angle(12);
+
+    var buf: [64]u8 = undefined;
+    var w = write(&buf, .big);
+    try w.putBytes(&model.bytes); // 16 bytes
+    try w.putVarint(u32, 4211); // an entity id, two bytes
+    try w.putVarint(i32, -3); // a frame delta, one byte
+
+    // The rest goes into a bit stream, byte-aligned behind the header.
+    var bw = writeBits(buf[w.written().len..]);
+    try position.put(&bw, 12.5);
+    try position.put(&bw, -300.25);
+    try heading.put(&bw, 1.75);
+    try bw.putBool(true);
+
+    const packet = buf[0 .. w.written().len + bw.written().len];
+    try testing.expectEqual(@as(usize, 25), packet.len);
+
+    // And back.
+    var r = read(packet, .big);
+    try testing.expect(model.eql(.fromBytes((try r.takeArray(16)).*)));
+    try testing.expectEqual(@as(u32, 4211), try r.takeVarint(u32));
+    try testing.expectEqual(@as(i32, -3), try r.takeVarint(i32));
+
+    var br = readBits(r.rest());
+    try testing.expectApproxEqAbs(@as(f32, 12.5), try position.take(&br), position.precision());
+    try testing.expectApproxEqAbs(@as(f32, -300.25), try position.take(&br), position.precision());
+    try testing.expectApproxEqAbs(@as(f32, 1.75), try heading.take(&br), heading.precision());
+    try testing.expect(try br.takeBool());
+}
+
 test "shorthands" {
     var buf: [4]u8 = undefined;
     var w = write(&buf, .little);
@@ -104,4 +167,9 @@ test "shorthands" {
 
     var r = read(&buf, .little);
     try testing.expectEqual(@as(u32, 0x01020304), try r.take(u32));
+
+    var bw = writeBits(&buf);
+    try bw.put(u8, 5, 3);
+    var br = readBits(bw.written());
+    try testing.expectEqual(@as(u8, 5), try br.take(u8, 3));
 }

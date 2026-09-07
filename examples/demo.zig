@@ -121,12 +121,17 @@ pub fn main(init: std.process.Init) !void {
 // An entity update, in as few bits as it will go
 // -------------------------------------------------------------------------
 
-/// A namespace of this project's own. Mint one with `Uuid.random` and keep it.
-const asset_namespace = enc.Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
+/// The id of one asset, as the sixteen bytes it travels as. Minting these and
+/// spelling them `2f8a1c40-...` is fluxion-id's job; putting them on a wire is
+/// this library's.
+const player_model: [16]u8 = .{
+    0x2F, 0x8A, 0x1C, 0x40, 0x6D, 0x3E, 0x4B, 0x17,
+    0x9F, 0x22, 0xC1, 0xA5, 0xE7, 0xB9, 0x0D, 0x34,
+};
 
 const Entity = struct {
     id: u32,
-    model: enc.Uuid,
+    model: [16]u8,
     position: [3]f32,
     heading: f32,
     facing: [3]f32,
@@ -145,7 +150,7 @@ const rotation = enc.quantize.rotation(9);
 fn sendAPacket(out: *Io.Writer) !void {
     const sent: Entity = .{
         .id = 4211,
-        .model = .fromName(asset_namespace, "models/player.glb"),
+        .model = player_model,
         .position = .{ 12.5, -300.25, 64.0 },
         .heading = 1.75,
         .facing = .{ 0, 0, 1 },
@@ -159,7 +164,7 @@ fn sendAPacket(out: *Io.Writer) !void {
     // The header is byte-shaped: an asset id, then a varint entity id that
     // costs two bytes rather than four.
     var w = enc.write(&buf, .big);
-    try w.putBytes(&sent.model.bytes);
+    try w.putBytes(&sent.model);
     try w.putVarint(u32, sent.id);
     const header_len = w.written().len;
 
@@ -195,8 +200,13 @@ fn sendAPacket(out: *Io.Writer) !void {
 
     // And the other end reads it back.
     var r = enc.read(packet, .big);
-    const model: enc.Uuid = .fromBytes((try r.takeArray(16)).*);
+    const model = (try r.takeArray(16)).*;
     const id = try r.takeVarint(u32);
+
+    // Sixteen opaque bytes are unreadable, so print them as hex - the same
+    // thirty-two digits a uuid is spelled with, without the dashes.
+    var model_text: [32]u8 = undefined;
+    _ = try enc.hex.encode(&model_text, &model, .{});
 
     var br = enc.readBits(r.rest());
     var got_position: [3]f32 = undefined;
@@ -209,7 +219,7 @@ fn sendAPacket(out: *Io.Writer) !void {
 
     try out.print(
         \\
-        \\entity {d}, model {f}
+        \\entity {d}, model {s}
         \\position {d:.3} {d:.3} {d:.3}  (to within {d:.4})
         \\heading  {d:.4}                  (to within {d:.5})
         \\facing   {d:.3} {d:.3} {d:.3}
@@ -218,7 +228,7 @@ fn sendAPacket(out: *Io.Writer) !void {
         \\
     , .{
         id,
-        model,
+        &model_text,
         got_position[0],
         got_position[1],
         got_position[2],
@@ -236,9 +246,9 @@ fn sendAPacket(out: *Io.Writer) !void {
         got_firing,
     });
 
-    // The id is derived from the path, so it is the same id every run.
-    try out.print(
-        "\nmodels/player.glb -> {f}\n",
-        .{enc.Uuid.fromName(asset_namespace, "models/player.glb")},
-    );
+    // The same sixteen bytes, spelled the way a person reads them back.
+    var grouped: [47]u8 = undefined;
+    try out.print("\nmodels/player.glb -> {s}\n", .{
+        try enc.hex.encode(&grouped, &model, .{ .separator = ":" }),
+    });
 }

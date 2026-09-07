@@ -1,6 +1,6 @@
 # Fluxion Encoding
 
-Bytes to text and back, and the byte order in between. For Zig 0.16. Seven
+Bytes to text and back, and the byte order in between. For Zig 0.16. Six
 pieces that fit together:
 
 | Module | What it is |
@@ -11,7 +11,6 @@ pieces that fit together:
 | `varint` | Integers that cost one byte when they are small. Signed ones go through zigzag, so `-1` costs one byte too. |
 | `bits` | Fields that are not a whole number of bytes wide. |
 | `quantize` | Floats, angles, normals and rotations into those fields, each saying what it costs in precision. |
-| `Uuid` | A 128-bit asset id, and the text it is written as. `fromName` turns a path into the same id every build. |
 
 The two codecs share one shape, so swapping between them is a change of name
 and nothing else:
@@ -26,6 +25,10 @@ and nothing else:
 
 Nothing here allocates unless it takes an `Allocator`, and everything that
 allocates documents who owns the result.
+
+Identifiers live next door: [Fluxion Id](https://github.com/kisstp2006/fluxion-id)
+mints the UUIDs an asset pipeline names things with. This library carries their
+sixteen bytes and prints them; it does not define them.
 
 ## Install
 
@@ -302,30 +305,6 @@ because a unit quaternion only has three degrees of freedom.
 Quantizing is lossy on purpose — never round-trip a value through it and then
 compare for equality.
 
-### Uuid
-
-Sixteen bytes that name a thing and survive it being renamed, moved or edited:
-
-```zig
-const id = try enc.Uuid.parse("f81d4fae-7dec-11d0-a765-00a0c91e6bf6");
-id.toString();       // [36]u8 by value, nothing to free
-```
-
-Parsing is forgiving — dashes anywhere or nowhere, braces, either case —
-and printing always gives the one canonical spelling back.
-
-`fromName` is the one an asset pipeline wants. The same namespace and path
-give the same id every build, on every machine, with nothing written down:
-
-```zig
-// Mint the namespace once with `random`, then keep it as a constant.
-const assets = enc.Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
-const cursor = enc.Uuid.fromName(assets, "textures/ui/cursor.png");
-```
-
-`random` gives a fresh one from any `std.Random`. Either way it is a value:
-copy it, compare it with `eql`, sort it, or use it as an `AutoHashMap` key.
-
 ## A packet, in as few bits as it will go
 
 ```zig
@@ -338,7 +317,7 @@ var buf: [64]u8 = undefined;
 
 // The header is byte-shaped.
 var w = enc.write(&buf, .big);
-try w.putBytes(&model_id.bytes);        // 16 bytes
+try w.putBytes(&model_id);              // 16 bytes, minted by fluxion-id
 try w.putVarint(u32, entity_id);        // 2, not 4
 
 // Everything after it is bit-shaped.

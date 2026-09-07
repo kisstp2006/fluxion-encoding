@@ -2,7 +2,7 @@
 
 //! Fluxion Encoding - bytes to text and back, and the byte order in between.
 //!
-//! Seven pieces that fit together:
+//! Six pieces that fit together:
 //!
 //!   `base64`    RFC 4648 in both alphabets, padded or not, wrapped or not
 //!   `hex`       hex in either case, with separators, and a hex dump
@@ -10,7 +10,6 @@
 //!   `varint`    integers that cost one byte when they are small
 //!   `bits`      fields that are not a whole number of bytes wide
 //!   `quantize`  floats, angles, normals and rotations, into those fields
-//!   `Uuid`      a 128-bit asset id, and the text it is written as
 //!
 //! The two codecs share one shape, so swapping between them is a change of
 //! name and nothing else:
@@ -33,8 +32,22 @@ pub const varint = @import("varint.zig");
 pub const bits = @import("bits.zig");
 pub const quantize = @import("quantize.zig");
 
-/// A 128-bit identifier. See `Uuid`.
-pub const Uuid = @import("Uuid.zig");
+/// Moved. A UUID is a name for a thing, not a way of writing bytes down, so it
+/// lives in fluxion-id along with `TypeId` and `handle` - and the version there
+/// is the complete one: versions 4, 5 and 7, the URN form, `variant`, and a
+/// `Clock` that keeps ids ordered inside a millisecond.
+///
+/// ```zig
+/// const ids = @import("fluxion_id");
+/// const asset = ids.Uuid.fromName(namespace, "models/player.glb");
+/// ```
+///
+/// This library still carries the bytes: `putBytes(&id.bytes)` writes one, and
+/// `hex` prints one. It just does not define it.
+pub const Uuid = @compileError(
+    "fluxion-encoding: Uuid moved to fluxion-id. " ++
+        "Depend on fluxion_id and use `ids.Uuid`.",
+);
 
 /// Byte order, re-exported from `std.builtin`. See `endian`.
 pub const Endian = endian.Endian;
@@ -80,7 +93,6 @@ test {
     _ = varint;
     _ = bits;
     _ = quantize;
-    _ = Uuid;
     _ = @import("sink.zig");
 }
 
@@ -123,17 +135,21 @@ test "the pieces compose" {
 }
 
 test "a packet, in as few bits as it will go" {
-    // An asset id names what moved; the rest is quantized down to the
-    // precision anyone can actually tell apart.
-    const assets = Uuid.parseComptime("2f8a1c40-6d3e-4b17-9f22-c1a5e7b90d34");
-    const model = Uuid.fromName(assets, "models/player.glb");
+    // A sixteen-byte asset id names what moved; the rest is quantized down to
+    // the precision anyone can actually tell apart. Where the id came from is
+    // fluxion-id's business - here it is sixteen bytes, which is all this
+    // library ever sees of one.
+    const model: [16]u8 = .{
+        0x2F, 0x8A, 0x1C, 0x40, 0x6D, 0x3E, 0x4B, 0x17,
+        0x9F, 0x22, 0xC1, 0xA5, 0xE7, 0xB9, 0x0D, 0x34,
+    };
 
     const position = quantize.Range.init(-500, 500, 16);
     const heading = quantize.angle(12);
 
     var buf: [64]u8 = undefined;
     var w = write(&buf, .big);
-    try w.putBytes(&model.bytes); // 16 bytes
+    try w.putBytes(&model); // 16 bytes
     try w.putVarint(u32, 4211); // an entity id, two bytes
     try w.putVarint(i32, -3); // a frame delta, one byte
 
@@ -149,7 +165,7 @@ test "a packet, in as few bits as it will go" {
 
     // And back.
     var r = read(packet, .big);
-    try testing.expect(model.eql(.fromBytes((try r.takeArray(16)).*)));
+    try testing.expectEqualSlices(u8, &model, try r.takeArray(16));
     try testing.expectEqual(@as(u32, 4211), try r.takeVarint(u32));
     try testing.expectEqual(@as(i32, -3), try r.takeVarint(i32));
 

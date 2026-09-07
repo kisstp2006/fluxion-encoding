@@ -32,23 +32,6 @@ pub const varint = @import("varint.zig");
 pub const bits = @import("bits.zig");
 pub const quantize = @import("quantize.zig");
 
-/// Moved. A UUID is a name for a thing, not a way of writing bytes down, so it
-/// lives in fluxion-id along with `TypeId` and `handle` - and the version there
-/// is the complete one: versions 4, 5 and 7, the URN form, `variant`, and a
-/// `Clock` that keeps ids ordered inside a millisecond.
-///
-/// ```zig
-/// const ids = @import("fluxion_id");
-/// const asset = ids.Uuid.fromName(namespace, "models/player.glb");
-/// ```
-///
-/// This library still carries the bytes: `putBytes(&id.bytes)` writes one, and
-/// `hex` prints one. It just does not define it.
-pub const Uuid = @compileError(
-    "fluxion-encoding: Uuid moved to fluxion-id. " ++
-        "Depend on fluxion_id and use `ids.Uuid`.",
-);
-
 /// Byte order, re-exported from `std.builtin`. See `endian`.
 pub const Endian = endian.Endian;
 

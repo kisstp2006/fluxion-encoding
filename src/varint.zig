@@ -8,12 +8,11 @@
 //! packet turn out to be: an entity count, a component id, a frame delta.
 //!
 //! Signed types go through zigzag first, so `-1` costs one byte rather than
-//! ten. That is the right default for the small signed deltas games send;
-//! `zigzag` and `unzigzag` are public if you need the mapping on its own.
+//! ten; `zigzag` and `unzigzag` are public if you need the mapping alone.
 //!
-//! Everything works on plain slices and reports how many bytes it touched, so
-//! a varint can sit in the middle of a record. `endian.Reader` and
-//! `endian.Writer` have `takeVarint` and `putVarint` built on this.
+//! Everything works on plain slices and reports how many bytes it touched, so a
+//! varint can sit in the middle of a record. `endian.Reader` and `endian.Writer`
+//! have `takeVarint` and `putVarint` built on this.
 
 const std = @import("std");
 const testing = std.testing;

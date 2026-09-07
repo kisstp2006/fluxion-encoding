@@ -3,9 +3,8 @@
 //! Floats into as few bits as the job actually needs.
 //!
 //! A position is not accurate to 32 bits and a player cannot see the
-//! difference, so sending one costs far more than it is worth. Every routine
-//! here maps a float onto a small integer and back, and every one of them
-//! tells you what that costs in precision:
+//! difference. Every routine here maps a float onto a small integer and back,
+//! and says what that costs in precision:
 //!
 //!   `Range`       any interval, to any width
 //!   `unit`        `[0, 1]`, and `signedUnit` for `[-1, 1]`
@@ -16,9 +15,9 @@
 //! Each has a `put` and a `take` that go straight through a `bits.Writer` or
 //! `bits.Reader`, so a packet is written in the units you think in.
 //!
-//! Quantizing is lossy on purpose. What comes back is within the precision
-//! the width buys and no closer, so never round-trip a value through here and
-//! then compare it for equality.
+//! Quantizing is lossy on purpose: what comes back is within the precision the
+//! width buys and no closer, so never round-trip a value and compare it for
+//! equality.
 
 const std = @import("std");
 const math = std.math;
@@ -110,9 +109,8 @@ pub const tau: f32 = math.tau;
 /// An angle in radians, wrapped into `[0, 2π)` and divided into
 /// `1 << bit_count` levels.
 ///
-/// Unlike a `Range`, the two ends of the interval are the same angle, so no
-/// level is wasted duplicating it - and a heading never has to be clamped,
-/// because it wraps instead.
+/// Unlike a `Range`, both ends of the interval are the same angle, so no level
+/// is wasted on it and a heading wraps rather than clamping.
 pub const Angle = struct {
     bit_count: u16,
 
@@ -177,10 +175,9 @@ pub const Normal = struct {
 /// A unit vector in `2 * bit_count` bits, by folding the sphere onto an
 /// octahedron and that onto a square.
 ///
-/// Spends its precision evenly over the sphere, unlike storing two of the
-/// three components and rebuilding the third, which bunches up at the poles.
-/// Twelve bits a component is finer than a tenth of a degree, which is well
-/// past what a normal or a look direction needs.
+/// Spends its precision evenly over the sphere, unlike rebuilding the third
+/// component from two, which bunches up at the poles. Twelve bits a component
+/// is finer than a tenth of a degree.
 pub const NormalCodec = struct {
     bit_count: u16,
 
@@ -279,13 +276,12 @@ pub const Rotation = struct {
 /// A unit quaternion in `2 + 3 * bit_count` bits, by dropping the component
 /// with the largest magnitude and rebuilding it from the other three.
 ///
-/// A unit quaternion has only three degrees of freedom, so the fourth number
-/// is redundant; dropping the largest one keeps the remaining three inside
-/// `±1/√2`, which is where the precision goes. Nine bits a component is the
-/// usual choice for a character's rotation.
+/// A unit quaternion has three degrees of freedom, so the fourth number is
+/// redundant; dropping the largest keeps the rest inside `±1/√2`, which is
+/// where the precision goes. Nine bits a component suits a character rotation.
 ///
-/// `q` is `.{ x, y, z, w }` and must be a unit quaternion; a longer or shorter
-/// one is normalized first.
+/// `q` is `.{ x, y, z, w }` and must be a unit quaternion; anything else is
+/// normalized first.
 pub const RotationCodec = struct {
     bit_count: u16,
 

@@ -4,8 +4,8 @@
 //! binary with your own eyes.
 //!
 //! The `encode` / `decode` family mirrors `base64` exactly, down to the option
-//! names, so the two modules can be used interchangeably wherever a codec is
-//! all that is wanted:
+//! names, so the two are interchangeable wherever a codec is all that is
+//! wanted:
 //!
 //!   * `encode` / `decode`            - into a slice you own, no allocation
 //!   * `encodeAlloc` / `decodeAlloc`  - into fresh memory, you free it

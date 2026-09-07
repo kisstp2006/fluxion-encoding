@@ -2,14 +2,13 @@
 
 //! Internal plumbing: the output sinks the codecs write through.
 //!
-//! `base64` and `hex` each have exactly one encoding routine and one decoding
-//! routine, written against a sink rather than a destination. Point one at a
-//! `Buffer` to fill a slice the caller owns, at a `Counter` to measure the
-//! output without producing it, or at a `std.Io.Writer` to stream it straight
-//! out. All three answer to `writeByte` and `writeAll`, which is the whole
-//! interface a codec needs.
+//! `base64` and `hex` each have one encoding and one decoding routine, written
+//! against a sink rather than a destination: a `Buffer` to fill a slice the
+//! caller owns, a `Counter` to measure the output without producing it, or a
+//! `std.Io.Writer` to stream it. All three answer to `writeByte` and
+//! `writeAll`, which is the whole interface a codec needs.
 //!
-//! Nothing here is exported from `root.zig`.
+//! Not exported from `root.zig`.
 
 const std = @import("std");
 const testing = std.testing;

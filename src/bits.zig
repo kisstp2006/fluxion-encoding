@@ -7,12 +7,11 @@
 //! many bits as it needs and `Reader` takes them back out in the same order.
 //!
 //! Bits go most-significant first, within each byte and across bytes, so a
-//! packet laid out here matches the way the field diagrams in a protocol
-//! document read. The last byte is padded with zeros.
+//! packet here matches the field diagrams in a protocol document. The last byte
+//! is padded with zeros.
 //!
-//! The vocabulary is `endian`'s, one level down: `put` and `take` name a type
-//! and now a width as well, `save` and `restore` back out of a reading, and
-//! nothing allocates.
+//! The vocabulary is `endian`'s one level down: `put` and `take` name a type
+//! and a width, `save` and `restore` back out of a reading. Nothing allocates.
 
 const std = @import("std");
 const testing = std.testing;

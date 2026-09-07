@@ -13,9 +13,9 @@
 //! whatever the type says: `u24` occupies three bytes, not four, so bit-packed
 //! formats map straight onto Zig types.
 //!
-//! `Reader` borrows its vocabulary from a text parser on purpose - `peek`,
-//! `take`, `expect`, `save`, `restore` - because walking a binary header is
-//! the same job as walking a line of text.
+//! `Reader` borrows a text parser's vocabulary on purpose - `peek`, `take`,
+//! `expect`, `save`, `restore` - because walking a binary header is the same
+//! job as walking a line of text.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -174,8 +174,7 @@ pub fn writeAt(
 /// ```
 ///
 /// The stored form is a byte array, so the struct has no padding and no
-/// alignment of its own, and `get` converts only when the host disagrees with
-/// the field.
+/// alignment of its own, and `get` converts only when the host disagrees.
 pub fn Field(comptime T: type, comptime order: Endian) type {
     return extern struct {
         const Self = @This();

@@ -11,10 +11,10 @@
 //! `encodedLen` and `decodedLen` say how much room a call needs, so the
 //! no-allocation path never has to guess.
 //!
-//! Decoding is strict by default: it rejects characters outside the alphabet,
-//! misplaced padding, truncated groups, and final characters carrying bits
-//! that decoding would throw away. Loosen any of that through `DecodeOptions`
-//! when you have to read what someone else wrote.
+//! Decoding is strict by default: characters outside the alphabet, misplaced
+//! padding, truncated groups and final characters carrying bits that would be
+//! thrown away are all rejected. `DecodeOptions` loosens any of it for reading
+//! what someone else wrote.
 
 const std = @import("std");
 const testing = std.testing;

@@ -2,15 +2,13 @@
 
 //! A 128-bit identifier, and the text it is usually written as.
 //!
-//! Every asset pipeline needs a name for a thing that survives the thing being
-//! renamed, moved, or edited. Sixteen bytes is that name: it fits in a
-//! register pair, compares in two instructions, sorts, hashes, and reads back
-//! out as `f81d4fae-7dec-11d0-a765-00a0c91e6bf6` when a human has to look at
-//! it.
+//! Every asset pipeline needs a name that survives the thing being renamed,
+//! moved or edited. Sixteen bytes is that name: it fits in a register pair,
+//! sorts, hashes, and reads back as `f81d4fae-7dec-11d0-a765-00a0c91e6bf6`.
 //!
-//! `random` gives a fresh one. `fromName` gives the *same* one every time for
-//! the same namespace and text, which is what turns an asset path into a
-//! stable id without a database to remember it.
+//! `random` gives a fresh one; `fromName` gives the *same* one every time for
+//! the same namespace and text, which turns an asset path into a stable id
+//! with no database to remember it.
 //!
 //! The bytes are stored in the order they are written, so a `Uuid` can be
 //! memcpy'd into a file and read back on any machine. It is a value: copy it,
@@ -74,9 +72,8 @@ pub fn toInt(self: Uuid) u128 {
 /// const id = Uuid.random(source.interface());
 /// ```
 ///
-/// A seeded `std.Random.DefaultPrng` is the right choice instead when a build
-/// has to produce the same ids twice - and the wrong one when anybody stands
-/// to gain by guessing the next id.
+/// A seeded `std.Random.DefaultPrng` is right when a build has to produce the
+/// same ids twice, and wrong when anybody gains by guessing the next one.
 pub fn random(rng: std.Random) Uuid {
     var self: Uuid = undefined;
     rng.bytes(&self.bytes);
@@ -86,9 +83,8 @@ pub fn random(rng: std.Random) Uuid {
 
 /// The same id every time for the same `namespace` and `name`, version 5.
 ///
-/// This is the one an asset pipeline wants: hand it a path and it hands back
-/// an id that will still be the same next build, on another machine, without
-/// anything having been written down.
+/// What an asset pipeline wants: hand it a path and the id is the same next
+/// build, on another machine, with nothing written down.
 ///
 /// ```zig
 /// // Mint one of these once, with `random`, and keep it as a constant.
